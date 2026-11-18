@@ -1,0 +1,134 @@
+name: release
+
+# Runs ONLY when the branch "release" is pushed.
+# No other branch, no pull request, no tag and no manual trigger starts this workflow.
+on:
+  push:
+    branches:
+      - release
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+
+jobs:
+  build:
+    name: Test, publish (NativeAOT) and package
+    # second safety net next to the trigger filter above
+    if: github.ref == 'refs/heads/release'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+      zip: ${{ steps.package.outputs.zip }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Show SDK
+        run: dotnet --info
+
+      # major.minor come from <Version> in the csproj; the last digit is the build number = the number of this workflow run,
+      # so every push to "release" produces a new, higher version (1.0.1, 1.0.2, ...). Nothing is committed back to the repository.
+      - name: Compute the version
+        id: meta
+        run: |
+          $xml = [xml](Get-Content NvidiaGsyncTweaks.csproj)
+          $base = ($xml.Project.PropertyGroup | ForEach-Object { $_.Version } | Where-Object { $_ } | Select-Object -First 1)
+          if ($base -match '^(\d+)\.(\d+)(\.\d+)?$') { $version = "$($Matches[1]).$($Matches[2]).${{ github.run_number }}" }
+          else { throw "Set <Version>major.minor.0</Version> in NvidiaGsyncTweaks.csproj (found: '$base')" }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=v$version" >> $env:GITHUB_OUTPUT
+          Write-Host "Version: $version"
+
+      - name: Unit tests
+        run: dotnet test tests/NvidiaGsyncTweaks.Tests/NvidiaGsyncTweaks.Tests.csproj -c Release --nologo
+
+      - name: Make vswhere visible (needed by the NativeAOT linker step)
+        run: '"C:\Program Files (x86)\Microsoft Visual Studio\Installer" >> $env:GITHUB_PATH'
+
+      - name: Publish NativeAOT (win-x64)
+        run: >
+          dotnet publish NvidiaGsyncTweaks.csproj
+          -c Release -r win-x64 -p:Platform=x64
+          -p:Version=${{ steps.meta.outputs.version }}
+          -p:SourceRevisionId=${{ github.sha }}
+          --nologo -o publish
+
+      - name: Verify the published app
+        run: |
+          $exe = Get-Item publish/NvidiaGsyncTweaks.exe
+          if ($exe.Length -lt 1MB) { throw "NvidiaGsyncTweaks.exe looks wrong ($($exe.Length) bytes)" }
+          Get-ChildItem publish -Recurse -File | Select-Object FullName, Length | Format-Table -AutoSize
+
+      - name: Package
+        id: package
+        run: |
+          Remove-Item publish/*.pdb -Force -ErrorAction SilentlyContinue
+          $zip = "NvidiaGsyncTweaks-v${{ steps.meta.outputs.version }}-win-x64.zip"
+          Copy-Item README.md, docs/DRIVER-ANALYSIS.md publish/ -Force
+          Compress-Archive -Path publish/* -DestinationPath $zip -Force
+          (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower() + "  " + $zip | Set-Content "$zip.sha256" -Encoding ascii
+          "zip=$zip" >> $env:GITHUB_OUTPUT
+          Get-Content "$zip.sha256"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NvidiaGsyncTweaks-win-x64
+          path: |
+            ${{ steps.package.outputs.zip }}
+            ${{ steps.package.outputs.zip }}.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: GitHub release
+    needs: build
+    if: github.ref == 'refs/heads/release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write   # create the release / tag
+
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: NvidiaGsyncTweaks-win-x64
+
+      - name: Create the release ${{ needs.build.outputs.tag }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.build.outputs.tag }}
+          ZIP: ${{ needs.build.outputs.zip }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # only happens when a failed run is re-run: same run number, same version
+            echo "Release $TAG exists - replacing its assets."
+            gh release upload "$TAG" "$ZIP" "$ZIP.sha256" --clobber
+          else
+            gh release create "$TAG" "$ZIP" "$ZIP.sha256" \
+              --target "$GITHUB_SHA" \
+              --title "NVIDIA G-SYNC Tweaks $TAG" \
+              --generate-notes \
+              --notes "Requires the Windows App Runtime 2.x (framework-dependent app) and administrator rights to write the registry / restart the display driver. The undocumented registry values were analysed on NVIDIA driver 621.12 - see docs/DRIVER-ANALYSIS.md."
+          fi

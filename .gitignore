@@ -1,0 +1,13 @@
+# build output
+bin/
+obj/
+publish/
+*.zip
+
+# IDE / local
+.vs/
+*.user
+*.suo
+
+# backups / local archives
+*.bak

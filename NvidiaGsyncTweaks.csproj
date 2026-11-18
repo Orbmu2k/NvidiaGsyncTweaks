@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.22621.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <Platforms>x64;ARM64</Platforms>
+    <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>NvidiaGsyncTweaks</RootNamespace>
+    <AssemblyName>NvidiaGsyncTweaks</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Description>NVIDIA G-SYNC / VRR / LFC tweaks</Description>
+    <!-- major.minor are maintained here. The last digit is the build number: the GitHub pipeline replaces it with its run number
+         (1.0.57); a local build keeps 0 and is shown as "local build" in the app. -->
+    <Version>1.0.0</Version>
+
+    <!-- WinUI 3 + Microsoft.UI.Reactor, unpackaged, using the INSTALLED Windows App Runtime (framework-dependent) -->
+    <UseWinUI>true</UseWinUI>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
+    <EnableMsixTooling>true</EnableMsixTooling>
+
+    <!-- Native AOT for release publishes (dotnet publish -c Release -r win-x64) -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <DebugType>embedded</DebugType>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' != 'Debug'">
+    <PublishAot>true</PublishAot>
+    <OptimizationPreference>Size</OptimizationPreference>
+    <IlcGenerateStackTraceData>false</IlcGenerateStackTraceData>
+    <StripSymbols>true</StripSymbols>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- the unit-test project lives below tests/ and must not be compiled into the app -->
+    <Compile Remove="tests\**" />
+    <EmbeddedResource Remove="tests\**" />
+    <None Remove="tests\**" />
+    <Content Remove="tests\**" />
+    <Content Include="Assets\AppIcon.ico" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="docs\**" />
+    <PackageReference Include="Microsoft.UI.Reactor" Version="0.1.0-preview.18" />
+  </ItemGroup>
+
+</Project>

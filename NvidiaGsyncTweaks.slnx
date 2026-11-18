@@ -1,0 +1,13 @@
+<Solution>
+  <Configurations>
+    <Platform Name="ARM64" />
+    <Platform Name="x64" />
+  </Configurations>
+  <Folder Name="/tests/">
+    <Project Path="tests/NvidiaGsyncTweaks.Tests/NvidiaGsyncTweaks.Tests.csproj" />
+  </Folder>
+  <Project Path="NvidiaGsyncTweaks.csproj">
+    <Platform Solution="*|ARM64" Project="ARM64" />
+    <Platform Solution="*|x64" Project="x64" />
+  </Project>
+</Solution>
